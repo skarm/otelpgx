@@ -7,6 +7,7 @@ import (
 
 	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/require"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -20,18 +21,14 @@ func BenchmarkTracer(b *testing.B) {
 	}
 	ctx := context.Background()
 	config, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		b.Fatal(err)
-	}
+	require.NoError(b, err, "parse pgx pool config")
 	tracerProvider := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(tracetest.NewNoopExporter()),
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 	)
 	config.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithTracerProvider(tracerProvider))
 	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		b.Fatal(err)
-	}
+	require.NoError(b, err, "create pgx pool")
 	b.Cleanup(pool.Close)
 
 	tracer := tracerProvider.Tracer("otelpgx")
@@ -41,18 +38,13 @@ func BenchmarkTracer(b *testing.B) {
 	var maxConns int32
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		tx, err := pool.Begin(ctx)
-		if err != nil {
-			b.Fatal(err)
-		}
+		require.NoError(b, err, "begin transaction")
 		if err := tx.QueryRow(ctx, query).Scan(&maxConns); err != nil {
 			_ = tx.Rollback(ctx)
 			b.Fatal(err)
 		}
-		if err := tx.Rollback(ctx); err != nil {
-			b.Fatal(err)
-		}
+		require.NoError(b, tx.Rollback(ctx), "rollback transaction")
 	}
 }
